@@ -1,0 +1,14 @@
+# Air configuration file for NOTORA
+
+[build]
+cmd = "go build -o ./tmp/notora-server ./cmd/notora-server"
+bin = "./tmp/notora-server"
+full_bin = "./tmp/notora-server"
+include_ext = ["go"]
+exclude_dir = ["tmp", "data"]
+
+[log]
+time = true
+
+[run]
+cmd = "./tmp/notora-server"

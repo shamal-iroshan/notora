@@ -1,0 +1,4 @@
+server/.env
+server/notora-server
+server/data
+server/tmp
