@@ -100,3 +100,10 @@ func (r *TokenRepository) Revoke(tokenID int64) error {
 
 	return nil
 }
+
+// RevokeAllForUser revokes all refresh tokens for a given user.
+// Useful after password reset or account compromise.
+func (r *TokenRepository) RevokeAllForUser(userID int64) error {
+	_, err := r.DB.Exec(`UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?`, userID)
+	return err
+}

@@ -12,7 +12,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"password123\",\n    \"name\": \"Shamal\"\n}"
+          "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"Shamal\"\n}"
         },
         "url": {
           "raw": "http://localhost:8000/api/auth/register",
@@ -30,7 +30,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"password123\"\n}"
+          "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
         },
         "url": {
           "raw": "http://localhost:8000/api/auth/login",
@@ -45,10 +45,10 @@
       "name": "Refresh Token",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+          "raw": "{}"
         },
         "url": {
           "raw": "http://localhost:8000/api/auth/refresh",
@@ -66,7 +66,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"email\": \"test@example.com\"\n}"
+          "raw": "{\n  \"email\": \"test@example.com\"\n}"
         },
         "url": {
           "raw": "http://localhost:8000/api/auth/forgot-password",
@@ -84,7 +84,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"token\": \"{{reset_token}}\",\n    \"new_password\": \"newPassword123\"\n}"
+          "raw": "{\n  \"token\": \"{{reset_token}}\",\n  \"new_password\": \"newPassword123\"\n}"
         },
         "url": {
           "raw": "http://localhost:8000/api/auth/reset-password",
@@ -99,12 +99,7 @@
       "name": "Get Current User (Me)",
       "request": {
         "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
+        "header": [],
         "url": {
           "raw": "http://localhost:8000/api/me",
           "protocol": "http",
@@ -118,16 +113,10 @@
       "name": "Edit Profile",
       "request": {
         "method": "PUT",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          },
-          { "key": "Content-Type", "value": "application/json" }
-        ],
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"name\": \"Updated Name\"\n}"
+          "raw": "{\n  \"name\": \"Updated Name\"\n}"
         },
         "url": {
           "raw": "http://localhost:8000/api/me",
@@ -139,15 +128,28 @@
       }
     },
     {
+      "name": "Change Password",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"old_password\": \"password123\",\n  \"new_password\": \"newPassword456\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/me/password",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "me", "password"]
+        }
+      }
+    },
+    {
       "name": "Logout",
       "request": {
         "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{access_token}}"
-          }
-        ],
+        "header": [],
         "url": {
           "raw": "http://localhost:8000/api/logout",
           "protocol": "http",
@@ -159,8 +161,6 @@
     }
   ],
   "variable": [
-    { "key": "access_token", "value": "" },
-    { "key": "refresh_token", "value": "" },
     { "key": "reset_token", "value": "" }
   ]
 }

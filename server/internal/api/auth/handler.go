@@ -155,3 +155,66 @@ func (h *AuthHandler) Logout(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{"status": "logged_out"})
 }
+
+func (h *AuthHandler) EditProfile(ctx *gin.Context) {
+	var body EditProfileRequest
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid"})
+		return
+	}
+
+	userID := ctx.GetInt64("user_id")
+
+	if err := h.AuthService.EditProfile(userID, body.Name); err != nil {
+		ctx.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(200, gin.H{"status": "updated"})
+}
+
+func (h *AuthHandler) ForgotPassword(ctx *gin.Context) {
+	var body ForgotPasswordRequest
+	if ctx.ShouldBindJSON(&body) != nil {
+		ctx.JSON(400, gin.H{"error": "invalid"})
+		return
+	}
+
+	_ = h.AuthService.ForgotPassword(body.Email)
+
+	ctx.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *AuthHandler) ResetPassword(ctx *gin.Context) {
+	var body ResetPasswordRequest
+	if ctx.ShouldBindJSON(&body) != nil {
+		ctx.JSON(400, gin.H{"error": "invalid"})
+		return
+	}
+
+	err := h.AuthService.ResetPassword(body.Token, body.NewPassword)
+	if err != nil {
+		ctx.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(200, gin.H{"status": "password_reset"})
+}
+
+func (h *AuthHandler) ChangePassword(ctx *gin.Context) {
+	var body ChangePasswordRequest
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	userID := ctx.GetInt64("user_id")
+
+	err := h.AuthService.ChangePassword(userID, body.OldPassword, body.NewPassword)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "password_updated"})
+}

@@ -18,6 +18,7 @@ import (
 type AuthService struct {
 	UserRepo  *repository.UserRepository
 	TokenRepo *repository.TokenRepository
+	ResetRepo *repository.ResetRepository
 	AppConfig *config.Config
 }
 
@@ -152,4 +153,81 @@ func (s *AuthService) Refresh(oldRefreshToken string) (newAccessToken string, ne
 	}
 
 	return newAccessToken, newRefreshToken, nil
+}
+
+func (s *AuthService) ForgotPassword(email string) error {
+	// check user exists
+	userID, _, _, _, err := s.UserRepo.FindByEmail(email)
+	if err != nil {
+		return nil // always return OK for security
+	}
+
+	// create reset token
+	resetToken, _ := crypto.RandomHex(32)
+	tokenHash := crypto.SHA256Hex(resetToken)
+
+	expiry := time.Now().Add(10 * time.Minute)
+
+	s.ResetRepo.Insert(userID, tokenHash, expiry)
+
+	// In production you send this via SMTP
+	fmt.Println("RESET LINK: /reset-password?token=" + resetToken)
+
+	return nil
+}
+
+func (s *AuthService) ResetPassword(rawToken, newPassword string) error {
+	tokenHash := crypto.SHA256Hex(rawToken)
+
+	resetID, userID, err := s.ResetRepo.FindValid(tokenHash)
+	if err != nil {
+		return fmt.Errorf("invalid token")
+	}
+
+	newHash, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+
+	// inside AuthService.ResetPassword(...)
+	if err := s.UserRepo.UpdatePassword(userID, string(newHash)); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	// revoke all refresh tokens for the user
+	if err := s.TokenRepo.RevokeAllForUser(userID); err != nil {
+		return fmt.Errorf("failed to revoke tokens: %w", err)
+	}
+	s.ResetRepo.MarkUsed(resetID)
+
+	return nil
+}
+
+func (s *AuthService) EditProfile(userID int64, name string) error {
+	return s.UserRepo.UpdateName(userID, name)
+}
+
+func (s *AuthService) ChangePassword(userID int64, oldPassword, newPassword string) error {
+	// Fetch user data
+	_, _, storedHash, _, err := s.UserRepo.FindByID(userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(oldPassword)) != nil {
+		return fmt.Errorf("old password incorrect")
+	}
+
+	// Hash new password
+	newHashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password")
+	}
+
+	// Update database
+	if err := s.UserRepo.UpdatePassword(userID, string(newHashBytes)); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	// Security: revoke all refresh tokens
+	_ = s.TokenRepo.RevokeAllForUser(userID)
+
+	return nil
 }

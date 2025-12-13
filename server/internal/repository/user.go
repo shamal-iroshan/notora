@@ -60,3 +60,26 @@ func (r *UserRepository) FindByEmail(email string) (id int64, passwordHash, name
 	// err may be sql.ErrNoRows or something else — caller handles it.
 	return
 }
+
+// FindByID retrieves user fields by id.
+//
+// Returns: id, email, passwordHash, name, err
+func (r *UserRepository) FindByID(userID int64) (id int64, email, passwordHash, name string, err error) {
+	err = r.DB.QueryRow(
+		`SELECT id, email, password_hash, name
+		   FROM users
+		  WHERE id = ?`,
+		userID,
+	).Scan(&id, &email, &passwordHash, &name)
+	return
+}
+
+func (r *UserRepository) UpdateName(userID int64, name string) error {
+	_, err := r.DB.Exec(`UPDATE users SET name = ? WHERE id = ?`, name, userID)
+	return err
+}
+
+func (r *UserRepository) UpdatePassword(userID int64, newHash string) error {
+	_, err := r.DB.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, newHash, userID)
+	return err
+}

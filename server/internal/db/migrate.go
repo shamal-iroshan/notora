@@ -37,6 +37,16 @@ func Migrate(database *sql.DB) error {
 			revoked INTEGER DEFAULT 0,
 			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
+
+		`CREATE TABLE IF NOT EXISTS password_resets (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			token_hash TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			used INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);`,
 	}
 
 	// Execute each migration in sequence.
