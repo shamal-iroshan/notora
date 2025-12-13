@@ -9,69 +9,91 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 
+	// Auth modules
 	"github.com/shamal-iroshan/notora/internal/api/auth"
 	"github.com/shamal-iroshan/notora/internal/config"
 	"github.com/shamal-iroshan/notora/internal/db"
 	"github.com/shamal-iroshan/notora/internal/middleware"
+
+	// Notes modules
+	noteapi "github.com/shamal-iroshan/notora/internal/api/notes"
+	"github.com/shamal-iroshan/notora/internal/repository"
+	"github.com/shamal-iroshan/notora/internal/service"
 )
 
 func main() {
 	// -------------------------------------------------------------
-	// Load environment variables from .env (only in development)
-	// This does NOT override system environment variables.
+	// Load environment variables (.env file in development)
 	// -------------------------------------------------------------
 	_ = godotenv.Load()
 
-	// Load application configuration (port, DB path, secrets, etc.)
+	// Load application configuration (port, DB path, secrets, cookies)
 	cfg := config.LoadFromEnv()
 
 	// -------------------------------------------------------------
-	// Ensure the data directory exists (for SQLite .db file)
-	// If the folder does not exist, it will be created.
+	// Ensure data directory exists (for SQLite DB)
 	// -------------------------------------------------------------
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to create data directory:", err)
 	}
 
 	// -------------------------------------------------------------
-	// Connect to SQLite database
-	// "_fk=1" enables foreign key constraints in SQLite.
+	// Connect to SQLite database (enable foreign key constraints)
 	// -------------------------------------------------------------
 	dbConn, err := sql.Open("sqlite3", cfg.DBPath+"?_fk=1")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to open database:", err)
 	}
 	defer dbConn.Close()
 
 	// -------------------------------------------------------------
-	// Run database migrations (create tables if they don't exist)
-	// This ensures your database schema is ready before the server starts.
+	// Database migrations (create tables if not exist)
 	// -------------------------------------------------------------
 	if err := db.Migrate(dbConn); err != nil {
-		log.Fatal(err)
+		log.Fatal("database migration failed:", err)
 	}
 
 	// -------------------------------------------------------------
-	// Initialize Gin web server
-	// gin.Default() includes logger + recovery middleware
+	// Initialize Gin HTTP server
 	// -------------------------------------------------------------
 	r := gin.Default()
 
-	// Create authentication handler with its dependencies (DB + config)
+	// -------------------------------------------------------------
+	// AUTHENTICATION SETUP
+	// -------------------------------------------------------------
 	authHandler := auth.NewAuthHandler(dbConn, cfg)
 
-	// -------------------------------------------------------------
-	// Register API routes
-	//
-	// /api/auth → Public routes (login, register, refresh)
-	// /api      → Protected routes that require JWT (me, logout, etc.)
-	// -------------------------------------------------------------
+	// Public auth routes (register, login, refresh, forgot/reset password)
 	auth.RegisterPublicRoutes(r.Group("/api/auth"), authHandler)
-	auth.RegisterProtectedRoutes(r.Group("/api"), authHandler, middleware.JWTMiddleware(cfg))
+
+	// Protected auth routes (me, edit profile, change password, logout)
+	auth.RegisterProtectedRoutes(
+		r.Group("/api"),
+		authHandler,
+		middleware.JWTMiddleware(cfg),
+	)
 
 	// -------------------------------------------------------------
-	// Start the HTTP server on the configured port
+	// NOTES MODULE SETUP
+	// -------------------------------------------------------------
+
+	// Create Note repository → service → handler
+	noteRepo := repository.NewNoteRepository(dbConn)
+	noteService := service.NewNoteService(noteRepo)
+	noteHandler := noteapi.NewNoteHandler(noteService)
+
+	// Register protected notes routes
+	// All note endpoints require authentication.
+	noteapi.RegisterNoteRoutes(
+		r.Group("/api"),
+		noteHandler,
+		middleware.JWTMiddleware(cfg),
+	)
+
+	// -------------------------------------------------------------
+	// START SERVER
 	// Example: :8000
 	// -------------------------------------------------------------
+	log.Println("NOTORA server running on port:", cfg.Port)
 	r.Run(":" + cfg.Port)
 }

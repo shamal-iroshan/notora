@@ -47,6 +47,19 @@ func Migrate(database *sql.DB) error {
 			created_at TEXT NOT NULL,
 			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
+
+		`CREATE TABLE IF NOT EXISTS notes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			title TEXT,
+			content TEXT,
+			is_pinned INTEGER DEFAULT 0,
+			is_archived INTEGER DEFAULT 0,
+			is_deleted INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);`,
 	}
 
 	// Execute each migration in sequence.
