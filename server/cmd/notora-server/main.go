@@ -17,6 +17,7 @@ import (
 
 	// Notes modules
 	noteapi "github.com/shamal-iroshan/notora/internal/api/notes"
+	shareapi "github.com/shamal-iroshan/notora/internal/api/share"
 	"github.com/shamal-iroshan/notora/internal/repository"
 	"github.com/shamal-iroshan/notora/internal/service"
 )
@@ -78,7 +79,7 @@ func main() {
 	// -------------------------------------------------------------
 
 	// Create Note repository → service → handler
-	noteRepo := repository.NewNoteRepository(dbConn)
+	noteRepo := repository.NewNoteRepository(dbConn, cfg)
 	noteService := service.NewNoteService(noteRepo)
 	noteHandler := noteapi.NewNoteHandler(noteService)
 
@@ -89,6 +90,19 @@ func main() {
 		noteHandler,
 		middleware.JWTMiddleware(cfg),
 	)
+
+	// -------------------------------
+	// SHARING MODULE SETUP
+	// -------------------------------
+	shareRepo := repository.NewShareRepository(dbConn)
+	shareService := service.NewShareService(noteRepo, shareRepo)
+	shareHandler := shareapi.NewShareHandler(shareService, cfg)
+
+	// Public sharing: no auth
+	shareapi.RegisterPublicShareRoutes(r.Group("/api"), shareHandler)
+
+	// Protected sharing: must own the note
+	shareapi.RegisterProtectedShareRoutes(r.Group("/api", middleware.JWTMiddleware(cfg)), shareHandler)
 
 	// -------------------------------------------------------------
 	// START SERVER

@@ -60,6 +60,15 @@ func Migrate(database *sql.DB) error {
 			updated_at TEXT NOT NULL,
 			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
+
+		`CREATE TABLE IF NOT EXISTS shared_notes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			note_id INTEGER NOT NULL,
+			token TEXT UNIQUE NOT NULL,
+			disabled INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (note_id) REFERENCES notes(id)
+		);`,
 	}
 
 	// Execute each migration in sequence.

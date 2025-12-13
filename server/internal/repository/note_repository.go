@@ -2,26 +2,35 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
+	"github.com/shamal-iroshan/notora/internal/config"
 	"github.com/shamal-iroshan/notora/internal/model"
+	"github.com/shamal-iroshan/notora/internal/pkg/encryption"
 )
 
 type NoteRepository struct {
-	DB *sql.DB
+	DB        *sql.DB
+	AppConfig *config.Config
 }
 
-func NewNoteRepository(db *sql.DB) *NoteRepository {
-	return &NoteRepository{DB: db}
+func NewNoteRepository(db *sql.DB, cfg *config.Config) *NoteRepository {
+	return &NoteRepository{DB: db, AppConfig: cfg}
 }
 
 func (r *NoteRepository) Create(userID int64, title, content string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	encContent, err := encryption.EncryptAES([]byte(r.AppConfig.EncryptionKey), content)
+	if err != nil {
+		return 0, err
+	}
+
 	result, err := r.DB.Exec(`
 		INSERT INTO notes (user_id, title, content, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?)
-	`, userID, title, content, now, now)
+	`, userID, title, encContent, now, now)
 
 	if err != nil {
 		return 0, err
@@ -54,10 +63,15 @@ func (r *NoteRepository) GetByID(userID, noteID int64) (*model.Note, error) {
 		return nil, err
 	}
 
+	plaintext, err := encryption.DecryptAES([]byte(r.AppConfig.EncryptionKey), content)
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.Note{
 		ID:         id,
 		Title:      title,
-		Content:    content,
+		Content:    plaintext,
 		IsPinned:   pinned == 1,
 		IsArchived: archived == 1,
 		IsDeleted:  deleted == 1,
@@ -76,11 +90,19 @@ func (r *NoteRepository) GetAll(userID int64) (*sql.Rows, error) {
 }
 
 func (r *NoteRepository) Update(noteID, userID int64, title, content string) error {
-	_, err := r.DB.Exec(`
-		UPDATE notes
-		SET title = ?, content = ?, updated_at = ?
-		WHERE id = ? AND user_id = ?
-	`, title, content, time.Now().UTC().Format(time.RFC3339), noteID, userID)
+	// Encrypt content
+	encContent, err := encryption.EncryptAES([]byte(r.AppConfig.EncryptionKey), content)
+	if err != nil {
+		return err
+	}
+
+	// Execute update query
+	_, err = r.DB.Exec(`
+        UPDATE notes
+        SET title = ?, content = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+    `, title, encContent, time.Now().UTC().Format(time.RFC3339), noteID, userID)
+
 	return err
 }
 
@@ -194,6 +216,65 @@ func (r *NoteRepository) Search(userID int64, query string) ([]model.Note, error
 	}
 
 	return results, nil
+}
+
+// EnsureOwnership verifies that the note belongs to the given user.
+// Returns nil if the user owns the note, otherwise error.
+func (r *NoteRepository) EnsureOwnership(userID, noteID int64) error {
+	var count int
+
+	err := r.DB.QueryRow(`
+		SELECT COUNT(1)
+		FROM notes
+		WHERE id = ? AND user_id = ?
+	`, noteID, userID).Scan(&count)
+
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		return fmt.Errorf("not owner")
+	}
+
+	return nil
+}
+
+func (r *NoteRepository) GetPublicNote(noteID int64) (*model.Note, error) {
+	var n model.Note
+	var encContent string
+	var pinned, archived, deleted int
+
+	err := r.DB.QueryRow(`
+		SELECT id, title, content, is_pinned, is_archived, is_deleted, created_at, updated_at
+		FROM notes
+		WHERE id = ?
+	`, noteID).Scan(
+		&n.ID,
+		&n.Title,
+		&encContent,
+		&pinned,
+		&archived,
+		&deleted,
+		&n.CreatedAt,
+		&n.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt content
+	plaintext, err := encryption.DecryptAES([]byte(r.AppConfig.EncryptionKey), encContent)
+	if err != nil {
+		return nil, err
+	}
+
+	n.Content = plaintext
+	n.IsPinned = pinned == 1
+	n.IsArchived = archived == 1
+	n.IsDeleted = deleted == 1
+
+	return &n, nil
 }
 
 func boolToInt(b bool) int {

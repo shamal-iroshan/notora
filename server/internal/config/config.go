@@ -16,6 +16,8 @@ type Config struct {
 	CookieSecure  bool   // Whether cookies require HTTPS (true in production)
 	AccessExpiry  int    // Access token lifetime in seconds
 	RefreshExpiry int    // Refresh token lifetime in seconds
+	EncryptionKey string // Server-side encryption key for notes
+	AppBaseURL    string // Base URL of the frontend app
 }
 
 // getString retrieves a string value from the environment.
@@ -53,6 +55,8 @@ func LoadFromEnv() *Config {
 		DataDir:       getString("DATA_DIR", "./data"),
 		CookieDomain:  getString("COOKIE_DOMAIN", "localhost"),
 		CookieSecure:  getString("COOKIE_SECURE", "false") == "true",
+		EncryptionKey: getString("ENCRYPTION_KEY", ""),
+		AppBaseURL:    getString("AppBaseURL", ""),
 		AccessExpiry:  getInt("ACCESS_EXPIRY", 300),
 		RefreshExpiry: getInt("REFRESH_EXPIRY", 604800),
 	}
