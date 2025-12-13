@@ -140,7 +140,25 @@ func (h *AuthHandler) Me(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"user_id": userID})
+	id := userID.(int64)
+
+	// Repository currently returns primitives, not a struct:
+	// (id, email, passwordHash, salt, name, err)
+	uid, email, _, userSalt, name, createdAt, err := h.AuthService.GetUserByID(id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load user"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"user": gin.H{
+			"id":         uid,
+			"email":      email,
+			"name":       name,
+			"user_salt":  userSalt,
+			"created_at": createdAt,
+		},
+	})
 }
 
 // -----------------------------------------------------------------------------

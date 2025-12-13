@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -42,7 +44,7 @@ func NewAuthService(
 // Register creates a new user account after verifying that the email is unique.
 func (s *AuthService) Register(email, password, name string) error {
 	// Check if user already exists
-	_, _, _, _, err := s.UserRepo.FindByEmail(email)
+	_, _, _, _, _, err := s.UserRepo.FindByEmail(email)
 	if err == nil {
 		return fmt.Errorf("email already registered")
 	}
@@ -53,11 +55,17 @@ func (s *AuthService) Register(email, password, name string) error {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	//  Generate user_salt (for master key derivation)
+	saltBytes := make([]byte, 16)
+	_, _ = rand.Read(saltBytes)
+	userSalt := hex.EncodeToString(saltBytes)
+
 	// Insert new user
 	_, err = s.UserRepo.Create(
 		email,
 		string(passwordHash),
 		name,
+		userSalt,
 		time.Now().UTC().Format(time.RFC3339),
 	)
 
@@ -76,7 +84,7 @@ func (s *AuthService) Register(email, password, name string) error {
 func (s *AuthService) Login(email, password string) (accessToken string, refreshToken string, err error) {
 
 	// Retrieve user by email
-	userID, storedHash, _, _, err := s.UserRepo.FindByEmail(email)
+	userID, storedHash, _, _, _, err := s.UserRepo.FindByEmail(email)
 	if err != nil {
 		return "", "", errors.New("invalid credentials")
 	}
@@ -157,7 +165,7 @@ func (s *AuthService) Refresh(oldRefreshToken string) (newAccessToken string, ne
 
 func (s *AuthService) ForgotPassword(email string) error {
 	// check user exists
-	userID, _, _, _, err := s.UserRepo.FindByEmail(email)
+	userID, _, _, _, _, err := s.UserRepo.FindByEmail(email)
 	if err != nil {
 		return nil // always return OK for security
 	}
@@ -206,7 +214,7 @@ func (s *AuthService) EditProfile(userID int64, name string) error {
 
 func (s *AuthService) ChangePassword(userID int64, oldPassword, newPassword string) error {
 	// Fetch user data
-	_, _, storedHash, _, err := s.UserRepo.FindByID(userID)
+	_, _, storedHash, _, _, _, err := s.UserRepo.FindByID(userID)
 	if err != nil {
 		return fmt.Errorf("user not found")
 	}
@@ -230,4 +238,8 @@ func (s *AuthService) ChangePassword(userID int64, oldPassword, newPassword stri
 	_ = s.TokenRepo.RevokeAllForUser(userID)
 
 	return nil
+}
+
+func (s *AuthService) GetUserByID(userID int64) (id int64, email, passwordHash, salt string, name string, created string, err error) {
+	return s.UserRepo.FindByID(userID)
 }

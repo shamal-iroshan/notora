@@ -26,18 +26,16 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 // Returns:
 //   - userID: the auto-incremented ID of the new user
 //   - error, if any database error occurred (e.g., email already exists)
-func (r *UserRepository) Create(email, passwordHash, name, createdAt string) (int64, error) {
-	result, err := r.DB.Exec(
-		`INSERT INTO users (email, password_hash, name, created_at)
-		 VALUES (?, ?, ?, ?)`,
-		email, passwordHash, name, createdAt,
-	)
+func (r *UserRepository) Create(email, hash, name, salt, created string) (int64, error) {
+	res, err := r.DB.Exec(`INSERT INTO users(email, password_hash, name, user_salt, created_at)
+                           VALUES (?, ?, ?, ?, ?)`,
+		email, hash, name, salt, created)
 
 	if err != nil {
 		return 0, err
 	}
 
-	return result.LastInsertId()
+	return res.LastInsertId()
 }
 
 // FindByEmail retrieves a user record by email.
@@ -48,14 +46,11 @@ func (r *UserRepository) Create(email, passwordHash, name, createdAt string) (in
 //   - name: the user’s name
 //   - createdAt: account creation timestamp
 //   - error: sql.ErrNoRows if user does not exist
-func (r *UserRepository) FindByEmail(email string) (id int64, passwordHash, name, createdAt string, err error) {
+func (r *UserRepository) FindByEmail(email string) (id int64, hash, name, salt string, created string, err error) {
 
-	err = r.DB.QueryRow(
-		`SELECT id, password_hash, name, created_at
-		   FROM users
-		  WHERE email = ?`,
-		email,
-	).Scan(&id, &passwordHash, &name, &createdAt)
+	err = r.DB.QueryRow(`SELECT id, password_hash, name, user_salt, created_at 
+                         FROM users WHERE email = ?`,
+		email).Scan(&id, &hash, &name, &salt, &created)
 
 	// err may be sql.ErrNoRows or something else — caller handles it.
 	return
@@ -64,13 +59,13 @@ func (r *UserRepository) FindByEmail(email string) (id int64, passwordHash, name
 // FindByID retrieves user fields by id.
 //
 // Returns: id, email, passwordHash, name, err
-func (r *UserRepository) FindByID(userID int64) (id int64, email, passwordHash, name string, err error) {
+func (r *UserRepository) FindByID(userID int64) (id int64, email, passwordHash, salt string, name string, created string, err error) {
 	err = r.DB.QueryRow(
-		`SELECT id, email, password_hash, name
+		`SELECT id, email, password_hash,, user_salt, name, created_at 
 		   FROM users
 		  WHERE id = ?`,
 		userID,
-	).Scan(&id, &email, &passwordHash, &name)
+	).Scan(&id, &email, &passwordHash, &salt, &name, &created)
 	return
 }
 

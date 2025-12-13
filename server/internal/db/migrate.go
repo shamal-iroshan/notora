@@ -20,6 +20,7 @@ func Migrate(database *sql.DB) error {
 			email TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			name TEXT,
+			user_salt TEXT NOT NULL,
 			created_at TEXT NOT NULL
 		);`,
 
