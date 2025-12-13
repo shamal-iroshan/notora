@@ -69,6 +69,19 @@ func Migrate(database *sql.DB) error {
 			created_at TEXT NOT NULL,
 			FOREIGN KEY (note_id) REFERENCES notes(id)
 		);`,
+
+		`CREATE TABLE IF NOT EXISTS encrypted_notes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			title_ciphertext TEXT NOT NULL,
+			content_ciphertext TEXT NOT NULL,
+			title_nonce TEXT NOT NULL,
+			content_nonce TEXT NOT NULL,
+			note_salt TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		);`,
 	}
 
 	// Execute each migration in sequence.

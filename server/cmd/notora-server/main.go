@@ -16,6 +16,7 @@ import (
 	"github.com/shamal-iroshan/notora/internal/middleware"
 
 	// Notes modules
+	encryptedapi "github.com/shamal-iroshan/notora/internal/api/encrypted"
 	noteapi "github.com/shamal-iroshan/notora/internal/api/notes"
 	shareapi "github.com/shamal-iroshan/notora/internal/api/share"
 	"github.com/shamal-iroshan/notora/internal/repository"
@@ -103,6 +104,15 @@ func main() {
 
 	// Protected sharing: must own the note
 	shareapi.RegisterProtectedShareRoutes(r.Group("/api", middleware.JWTMiddleware(cfg)), shareHandler)
+
+	encryptedRepo := repository.NewEncryptedNotesRepository(dbConn)
+	encryptedService := service.NewEncryptedNotesService(encryptedRepo)
+	encryptedHandler := encryptedapi.NewEncryptedNotesHandler(encryptedService)
+
+	encryptedapi.RegisterEncryptedNotesRoutes(
+		r.Group("/api/encrypted-notes", middleware.JWTMiddleware(cfg)),
+		encryptedHandler,
+	)
 
 	// -------------------------------------------------------------
 	// START SERVER
