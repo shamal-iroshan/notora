@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+
+	"github.com/shamal-iroshan/notora/internal/model"
 )
 
 // UserRepository provides database operations for the users table.
@@ -27,8 +29,8 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 //   - userID: the auto-incremented ID of the new user
 //   - error, if any database error occurred (e.g., email already exists)
 func (r *UserRepository) Create(email, hash, name, salt, created string) (int64, error) {
-	res, err := r.DB.Exec(`INSERT INTO users(email, password_hash, name, user_salt, created_at)
-                           VALUES (?, ?, ?, ?, ?)`,
+	res, err := r.DB.Exec(`INSERT INTO users(email, password_hash, name, user_salt, status, is_admin, created_at)
+                           VALUES (?, ?, ?, ?, 'PENDING', 0, ?)`,
 		email, hash, name, salt, created)
 
 	if err != nil {
@@ -46,27 +48,32 @@ func (r *UserRepository) Create(email, hash, name, salt, created string) (int64,
 //   - name: the user’s name
 //   - createdAt: account creation timestamp
 //   - error: sql.ErrNoRows if user does not exist
-func (r *UserRepository) FindByEmail(email string) (id int64, hash, name, salt string, created string, err error) {
+func (r *UserRepository) FindByEmail(email string) (*model.User, error) {
+	var u model.User
 
-	err = r.DB.QueryRow(`SELECT id, password_hash, name, user_salt, created_at 
+	err := r.DB.QueryRow(`SELECT id, password_hash, email, name, user_salt, status, is_admin,created_at 
                          FROM users WHERE email = ?`,
-		email).Scan(&id, &hash, &name, &salt, &created)
-
-	// err may be sql.ErrNoRows or something else — caller handles it.
-	return
+		email).Scan(&u.ID, &u.Password, &u.Email, &u.Name, &u.UserSalt, &u.Status, &u.IsAdmin, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 // FindByID retrieves user fields by id.
 //
 // Returns: id, email, passwordHash, name, err
-func (r *UserRepository) FindByID(userID int64) (id int64, email, passwordHash, salt string, name string, created string, err error) {
-	err = r.DB.QueryRow(
-		`SELECT id, email, password_hash,, user_salt, name, created_at 
-		   FROM users
-		  WHERE id = ?`,
-		userID,
-	).Scan(&id, &email, &passwordHash, &salt, &name, &created)
-	return
+func (r *UserRepository) FindByID(userID int64) (*model.User, error) {
+	var u model.User
+
+	err := r.DB.QueryRow(`
+		SELECT id, email, password_hash, name, user_salt, status, is_admin, created_at
+		FROM users WHERE id=?
+	`, userID).Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.UserSalt, &u.Status, &u.IsAdmin, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 func (r *UserRepository) UpdateName(userID int64, name string) error {
@@ -77,4 +84,35 @@ func (r *UserRepository) UpdateName(userID int64, name string) error {
 func (r *UserRepository) UpdatePassword(userID int64, newHash string) error {
 	_, err := r.DB.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, newHash, userID)
 	return err
+}
+
+// ADMIN ACTIONS
+func (r *UserRepository) Approve(id int64) error {
+	_, err := r.DB.Exec(`UPDATE users SET status='APPROVED' WHERE id=?`, id)
+	return err
+}
+
+func (r *UserRepository) Suspend(id int64) error {
+	_, err := r.DB.Exec(`UPDATE users SET status='SUSPENDED' WHERE id=?`, id)
+	return err
+}
+
+func (r *UserRepository) DeleteUser(id int64) error {
+	_, err := r.DB.Exec(`DELETE FROM users WHERE id=?`, id)
+	return err
+}
+
+func (r *UserRepository) ListPending() ([]model.User, error) {
+	rows, err := r.DB.Query(`SELECT id, email, name, created_at FROM users WHERE status='PENDING'`)
+	if err != nil {
+		return nil, err
+	}
+
+	var list []model.User
+	for rows.Next() {
+		var u model.User
+		rows.Scan(&u.ID, &u.Email, &u.Name, &u.CreatedAt)
+		list = append(list, u)
+	}
+	return list, nil
 }

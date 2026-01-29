@@ -23,7 +23,8 @@ type AuthHandler struct {
 func NewAuthHandler(db *sql.DB, cfg *config.Config) *AuthHandler {
 	userRepo := repository.NewUserRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
-	authService := service.NewAuthService(userRepo, tokenRepo, cfg)
+	resetRepo := repository.NewResetRepository(db)
+	authService := service.NewAuthService(userRepo, tokenRepo, resetRepo, cfg)
 
 	return &AuthHandler{
 		AuthService: authService,
@@ -144,7 +145,7 @@ func (h *AuthHandler) Me(ctx *gin.Context) {
 
 	// Repository currently returns primitives, not a struct:
 	// (id, email, passwordHash, salt, name, err)
-	uid, email, _, userSalt, name, createdAt, err := h.AuthService.GetUserByID(id)
+	user, err := h.AuthService.GetUserByID(id)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load user"})
 		return
@@ -152,11 +153,11 @@ func (h *AuthHandler) Me(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
-			"id":         uid,
-			"email":      email,
-			"name":       name,
-			"user_salt":  userSalt,
-			"created_at": createdAt,
+			"id":         user.ID,
+			"email":      user.Email,
+			"name":       user.Name,
+			"user_salt":  user.UserSalt,
+			"created_at": user.CreatedAt,
 		},
 	})
 }

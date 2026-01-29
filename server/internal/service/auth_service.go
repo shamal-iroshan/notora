@@ -10,13 +10,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/shamal-iroshan/notora/internal/config"
+	"github.com/shamal-iroshan/notora/internal/model"
 	"github.com/shamal-iroshan/notora/internal/pkg/crypto"
 	"github.com/shamal-iroshan/notora/internal/pkg/jwt"
 	"github.com/shamal-iroshan/notora/internal/repository"
 )
 
-// AuthService contains the business logic for authentication.
-// It coordinates user repository + token repository + JWT utilities.
 type AuthService struct {
 	UserRepo  *repository.UserRepository
 	TokenRepo *repository.TokenRepository
@@ -24,15 +23,16 @@ type AuthService struct {
 	AppConfig *config.Config
 }
 
-// NewAuthService wires dependencies into the service layer.
 func NewAuthService(
 	userRepo *repository.UserRepository,
 	tokenRepo *repository.TokenRepository,
+	resetRepo *repository.ResetRepository,
 	cfg *config.Config,
 ) *AuthService {
 	return &AuthService{
 		UserRepo:  userRepo,
 		TokenRepo: tokenRepo,
+		ResetRepo: resetRepo,
 		AppConfig: cfg,
 	}
 }
@@ -41,26 +41,26 @@ func NewAuthService(
 // REGISTER
 // -----------------------------------------------------------------------------
 
-// Register creates a new user account after verifying that the email is unique.
 func (s *AuthService) Register(email, password, name string) error {
-	// Check if user already exists
-	_, _, _, _, _, err := s.UserRepo.FindByEmail(email)
-	if err == nil {
+
+	// Check unique email
+	u, _ := s.UserRepo.FindByEmail(email)
+	if u != nil {
 		return fmt.Errorf("email already registered")
 	}
 
-	// Hash password using bcrypt (safe for storing passwords)
+	// Hash password
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	//  Generate user_salt (for master key derivation)
+	// Create user salt (used for encrypted notes master key)
 	saltBytes := make([]byte, 16)
-	_, _ = rand.Read(saltBytes)
+	rand.Read(saltBytes)
 	userSalt := hex.EncodeToString(saltBytes)
 
-	// Insert new user
+	// Create new user (PENDING status by default)
 	_, err = s.UserRepo.Create(
 		email,
 		string(passwordHash),
@@ -80,38 +80,43 @@ func (s *AuthService) Register(email, password, name string) error {
 // LOGIN
 // -----------------------------------------------------------------------------
 
-// Login verifies email + password, then issues access & refresh tokens.
-func (s *AuthService) Login(email, password string) (accessToken string, refreshToken string, err error) {
+func (s *AuthService) Login(email, password string) (string, string, error) {
 
-	// Retrieve user by email
-	userID, storedHash, _, _, _, err := s.UserRepo.FindByEmail(email)
+	user, err := s.UserRepo.FindByEmail(email)
 	if err != nil {
 		return "", "", errors.New("invalid credentials")
 	}
 
-	// Verify password
-	if bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)) != nil {
+	// Check password
+	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
 		return "", "", errors.New("invalid credentials")
 	}
 
-	// Create JWT access token
-	accessToken, err = jwt.CreateAccess([]byte(s.AppConfig.JWTSecret), userID, s.AppConfig.AccessExpiry)
+	// Status checks
+	if user.Status == "PENDING" {
+		return "", "", fmt.Errorf("account not approved")
+	}
+	if user.Status == "SUSPENDED" {
+		return "", "", fmt.Errorf("account suspended")
+	}
+
+	// Create access token
+	accessToken, err := jwt.CreateAccess([]byte(s.AppConfig.JWTSecret), user.ID, s.AppConfig.AccessExpiry)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create access token: %w", err)
 	}
 
-	// Create refresh token (raw token stored in cookie, hash stored in DB)
-	refreshToken, err = crypto.RandomHex(32)
+	// Create refresh token
+	refreshToken, err := crypto.RandomHex(32)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate refresh token: %w", err)
+		return "", "", fmt.Errorf("failed to generate refresh token")
 	}
 
 	err = s.TokenRepo.Insert(
-		userID,
+		user.ID,
 		crypto.SHA256Hex(refreshToken),
 		time.Now().Add(time.Duration(s.AppConfig.RefreshExpiry)*time.Second),
 	)
-
 	if err != nil {
 		return "", "", fmt.Errorf("failed to store refresh token: %w", err)
 	}
@@ -123,123 +128,131 @@ func (s *AuthService) Login(email, password string) (accessToken string, refresh
 // REFRESH TOKEN
 // -----------------------------------------------------------------------------
 
-// Refresh handles rotation of refresh tokens and issues a new access token.
-func (s *AuthService) Refresh(oldRefreshToken string) (newAccessToken string, newRefreshToken string, err error) {
+func (s *AuthService) Refresh(oldRefreshToken string) (string, string, error) {
 
-	hashedToken := crypto.SHA256Hex(oldRefreshToken)
+	hash := crypto.SHA256Hex(oldRefreshToken)
 
-	// Validate existing refresh token
-	refreshTokenID, userID, err := s.TokenRepo.FindValid(hashedToken)
+	tokenID, userID, err := s.TokenRepo.FindValid(hash)
 	if err != nil {
 		return "", "", errors.New("invalid or expired refresh token")
 	}
 
-	// Revoke old refresh token (refresh token rotation)
-	if err := s.TokenRepo.Revoke(refreshTokenID); err != nil {
-		return "", "", fmt.Errorf("failed to revoke refresh token: %w", err)
+	// Revoke old token (rotation)
+	if err := s.TokenRepo.Revoke(tokenID); err != nil {
+		return "", "", fmt.Errorf("failed to revoke token: %w", err)
 	}
 
-	// Generate new refresh token
-	newRefreshToken, err = crypto.RandomHex(32)
+	// Create new refresh token
+	newRefresh, err := crypto.RandomHex(32)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate new refresh token: %w", err)
+		return "", "", fmt.Errorf("failed to generate new refresh token")
 	}
 
 	err = s.TokenRepo.Insert(
 		userID,
-		crypto.SHA256Hex(newRefreshToken),
+		crypto.SHA256Hex(newRefresh),
 		time.Now().Add(time.Duration(s.AppConfig.RefreshExpiry)*time.Second),
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to store new refresh token: %w", err)
+		return "", "", fmt.Errorf("failed to store refresh token: %w", err)
 	}
 
-	// Issue new access token
-	newAccessToken, err = jwt.CreateAccess([]byte(s.AppConfig.JWTSecret), userID, s.AppConfig.AccessExpiry)
+	// Create new access token
+	newAccess, err := jwt.CreateAccess([]byte(s.AppConfig.JWTSecret), userID, s.AppConfig.AccessExpiry)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create new access token: %w", err)
+		return "", "", fmt.Errorf("failed to create new access token")
 	}
 
-	return newAccessToken, newRefreshToken, nil
+	return newAccess, newRefresh, nil
 }
 
+// -----------------------------------------------------------------------------
+// FORGOT PASSWORD
+// -----------------------------------------------------------------------------
+
 func (s *AuthService) ForgotPassword(email string) error {
-	// check user exists
-	userID, _, _, _, _, err := s.UserRepo.FindByEmail(email)
+	user, err := s.UserRepo.FindByEmail(email)
 	if err != nil {
-		return nil // always return OK for security
+		return nil // Always return OK
 	}
 
-	// create reset token
 	resetToken, _ := crypto.RandomHex(32)
-	tokenHash := crypto.SHA256Hex(resetToken)
+	hash := crypto.SHA256Hex(resetToken)
+	exp := time.Now().Add(10 * time.Minute)
 
-	expiry := time.Now().Add(10 * time.Minute)
+	s.ResetRepo.Insert(user.ID, hash, exp)
 
-	s.ResetRepo.Insert(userID, tokenHash, expiry)
-
-	// In production you send this via SMTP
-	fmt.Println("RESET LINK: /reset-password?token=" + resetToken)
+	// In production send by SMTP
+	fmt.Println("RESET URL: /reset-password?token=" + resetToken)
 
 	return nil
 }
 
-func (s *AuthService) ResetPassword(rawToken, newPassword string) error {
-	tokenHash := crypto.SHA256Hex(rawToken)
+// -----------------------------------------------------------------------------
+// RESET PASSWORD
+// -----------------------------------------------------------------------------
 
-	resetID, userID, err := s.ResetRepo.FindValid(tokenHash)
+func (s *AuthService) ResetPassword(rawToken, newPassword string) error {
+
+	hash := crypto.SHA256Hex(rawToken)
+
+	resetID, userID, err := s.ResetRepo.FindValid(hash)
 	if err != nil {
 		return fmt.Errorf("invalid token")
 	}
 
 	newHash, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 
-	// inside AuthService.ResetPassword(...)
 	if err := s.UserRepo.UpdatePassword(userID, string(newHash)); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	// revoke all refresh tokens for the user
-	if err := s.TokenRepo.RevokeAllForUser(userID); err != nil {
-		return fmt.Errorf("failed to revoke tokens: %w", err)
-	}
+	// Revoke all refresh tokens (security)
+	_ = s.TokenRepo.RevokeAllForUser(userID)
+
 	s.ResetRepo.MarkUsed(resetID)
 
 	return nil
 }
 
+// -----------------------------------------------------------------------------
+// PROFILE EDIT
+// -----------------------------------------------------------------------------
+
 func (s *AuthService) EditProfile(userID int64, name string) error {
 	return s.UserRepo.UpdateName(userID, name)
 }
 
+// -----------------------------------------------------------------------------
+// CHANGE PASSWORD
+// -----------------------------------------------------------------------------
+
 func (s *AuthService) ChangePassword(userID int64, oldPassword, newPassword string) error {
-	// Fetch user data
-	_, _, storedHash, _, _, _, err := s.UserRepo.FindByID(userID)
+	user, err := s.UserRepo.FindByID(userID)
 	if err != nil {
 		return fmt.Errorf("user not found")
 	}
 
-	if bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(oldPassword)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)) != nil {
 		return fmt.Errorf("old password incorrect")
 	}
 
-	// Hash new password
-	newHashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash new password")
+	newHash, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+
+	if err := s.UserRepo.UpdatePassword(userID, string(newHash)); err != nil {
+		return fmt.Errorf("failed to update password")
 	}
 
-	// Update database
-	if err := s.UserRepo.UpdatePassword(userID, string(newHashBytes)); err != nil {
-		return fmt.Errorf("failed to update password: %w", err)
-	}
-
-	// Security: revoke all refresh tokens
-	_ = s.TokenRepo.RevokeAllForUser(userID)
+	// Revoke all refresh tokens
+	s.TokenRepo.RevokeAllForUser(userID)
 
 	return nil
 }
 
-func (s *AuthService) GetUserByID(userID int64) (id int64, email, passwordHash, salt string, name string, created string, err error) {
-	return s.UserRepo.FindByID(userID)
+// -----------------------------------------------------------------------------
+// GET USER
+// -----------------------------------------------------------------------------
+
+func (s *AuthService) GetUserByID(id int64) (*model.User, error) {
+	return s.UserRepo.FindByID(id)
 }

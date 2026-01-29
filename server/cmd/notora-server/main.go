@@ -10,6 +10,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	// Auth modules
+	"github.com/shamal-iroshan/notora/internal/api/admin"
 	"github.com/shamal-iroshan/notora/internal/api/auth"
 	"github.com/shamal-iroshan/notora/internal/config"
 	"github.com/shamal-iroshan/notora/internal/db"
@@ -60,6 +61,12 @@ func main() {
 	// -------------------------------------------------------------
 	r := gin.Default()
 
+	// middlewares
+	userRepo := repository.NewUserRepository(dbConn)
+
+	pendingBlock := middleware.RequireApprovedUser()
+	jwtBlock := middleware.JWTMiddleware(cfg, userRepo)
+
 	// -------------------------------------------------------------
 	// AUTHENTICATION SETUP
 	// -------------------------------------------------------------
@@ -72,7 +79,7 @@ func main() {
 	auth.RegisterProtectedRoutes(
 		r.Group("/api"),
 		authHandler,
-		middleware.JWTMiddleware(cfg),
+		jwtBlock,
 	)
 
 	// -------------------------------------------------------------
@@ -89,7 +96,8 @@ func main() {
 	noteapi.RegisterNoteRoutes(
 		r.Group("/api"),
 		noteHandler,
-		middleware.JWTMiddleware(cfg),
+		jwtBlock,
+		pendingBlock,
 	)
 
 	// -------------------------------
@@ -103,16 +111,21 @@ func main() {
 	shareapi.RegisterPublicShareRoutes(r.Group("/api"), shareHandler)
 
 	// Protected sharing: must own the note
-	shareapi.RegisterProtectedShareRoutes(r.Group("/api", middleware.JWTMiddleware(cfg)), shareHandler)
+	shareapi.RegisterProtectedShareRoutes(r.Group("/api", jwtBlock, pendingBlock), shareHandler)
 
 	encryptedRepo := repository.NewEncryptedNotesRepository(dbConn)
 	encryptedService := service.NewEncryptedNotesService(encryptedRepo)
 	encryptedHandler := encryptedapi.NewEncryptedNotesHandler(encryptedService)
 
 	encryptedapi.RegisterEncryptedNotesRoutes(
-		r.Group("/api/encrypted-notes", middleware.JWTMiddleware(cfg)),
+		r.Group("/api/encrypted-notes", jwtBlock, pendingBlock),
 		encryptedHandler,
 	)
+
+	// Admin Area
+	adminGroup := r.Group("/api/admin")
+	adminGroup.Use(jwtBlock, middleware.RequireAdmin())
+	admin.RegisterAdminRoutes(adminGroup, adminHandler)
 
 	// -------------------------------------------------------------
 	// START SERVER
